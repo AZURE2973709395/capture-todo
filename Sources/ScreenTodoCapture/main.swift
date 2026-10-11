@@ -258,13 +258,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let record = try store.loadRecord(fileURL: todoURL) else {
                 return
             }
-            let metadata = await ReminderSyncService().createReminder(for: record)
-            try store.updateReminderMetadata(fileURL: todoURL, metadata: metadata)
+            guard let metadata = try await ReminderSyncService.shared.syncTodo(fileURL: todoURL, store: store) else { return }
             todoListWindowController.refresh()
             if metadata.status == .synced {
                 showNotification(title: "提醒事项已同步", body: record.title)
             } else {
-                showNotification(title: "提醒事项同步失败", body: ReminderSyncStatus.display(metadata.status.rawValue))
+                showNotification(title: "提醒事项同步失败", body: metadata.message ?? ReminderSyncStatus.display(metadata.status.rawValue))
             }
         } catch {
             showNotification(title: "提醒事项同步失败", body: error.localizedDescription)

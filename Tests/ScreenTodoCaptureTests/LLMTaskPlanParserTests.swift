@@ -1,8 +1,9 @@
 import Foundation
 @testable import ScreenTodoCapture
-import XCTest
+import Testing
 
-final class LLMTaskPlanParserTests: XCTestCase {
+final class LLMTaskPlanParserTests {
+    @Test
     func testParserToleratesFencedJSONLooseNumbersAndAliases() throws {
         let content = #"""
         ```json
@@ -24,15 +25,15 @@ final class LLMTaskPlanParserTests: XCTestCase {
 
         let plan = try LLMTaskPlanParser.parsePlan(from: content)
 
-        XCTAssertEqual(plan.title, "提交第 3 章作业")
-        XCTAssertNil(plan.correctedText)
-        XCTAssertEqual(plan.summary, "按要求提交作业。")
-        XCTAssertEqual(plan.plannedSteps, ["确认要求", "完成题目", "提交 Canvas"])
-        XCTAssertNil(plan.dueDate)
-        XCTAssertEqual(plan.estimatedMinutes, 45)
-        XCTAssertEqual(plan.difficultyScore, 10)
-        XCTAssertEqual(plan.tags, ["学校", "作业"])
-        XCTAssertEqual(plan.priority, "urgent")
-        XCTAssertEqual(try XCTUnwrap(plan.confidence), 0.85, accuracy: 0.001)
+        #expect(plan.title == "提交第 3 章作业")
+        #expect(plan.correctedText == nil)
+        #expect(plan.summary == "按要求提交作业。")
+        #expect(plan.plannedSteps == ["确认要求", "完成题目", "提交 Canvas"])
+        #expect(plan.dueDate == nil)
+        #expect(plan.estimatedMinutes == 45)
+        #expect(plan.difficultyScore == 10)
+        #expect(plan.tags == ["学校", "作业"])
+        #expect(plan.priority == "urgent")
+        #expect(abs((try #require(plan.confidence)) - (0.85)) <= 0.001)
     }
 }

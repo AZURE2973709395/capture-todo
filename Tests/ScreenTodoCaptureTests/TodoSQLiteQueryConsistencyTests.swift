@@ -2,11 +2,12 @@ import Foundation
 import SQLite3
 import ScreenTodoCaptureCore
 @testable import ScreenTodoCapture
-import XCTest
+import Testing
 
 private let testSQLITE_TRANSIENT = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 
-final class TodoSQLiteQueryConsistencyTests: XCTestCase {
+final class TodoSQLiteQueryConsistencyTests {
+    @Test
     func testSQLiteTagFilterMatchesWholeTagInsteadOfSubstring() throws {
         let temporaryRoot = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -28,12 +29,13 @@ final class TodoSQLiteQueryConsistencyTests: XCTestCase {
         try index.rebuildIndexFromMarkdown()
 
         let partialTagResults = try index.loadRecords(matching: TodoQuery(tag: "工"))
-        XCTAssertTrue(partialTagResults.isEmpty)
+        #expect(partialTagResults.isEmpty)
 
         let exactTagResults = try index.loadRecords(matching: TodoQuery(tag: "工作"))
-        XCTAssertEqual(exactTagResults.map(\.title), ["整理工作材料"])
+        #expect(exactTagResults.map(\.title) == ["整理工作材料"])
     }
 
+    @Test
     func testSearchFullMarkdownContentMatchesSQLiteAndFallback() throws {
         let temporaryRoot = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -66,16 +68,17 @@ final class TodoSQLiteQueryConsistencyTests: XCTestCase {
         let fileURL = store.todosDirectory.appendingPathComponent("manual.md")
         try markdown.write(to: fileURL, atomically: true, encoding: .utf8)
 
-        let record = try XCTUnwrap(TodoMarkdownParser.parse(fileURL: fileURL, content: markdown, store: store))
+        let record = try #require(TodoMarkdownParser.parse(fileURL: fileURL, content: markdown, store: store))
         let query = TodoQuery(searchText: "manual-only-token")
-        XCTAssertTrue(query.matches(record))
+        #expect(query.matches(record))
 
         let index = try TodoSQLiteStore(store: store)
         try index.rebuildIndexFromMarkdown()
         let sqliteResults = try index.loadRecords(matching: query)
-        XCTAssertEqual(sqliteResults.map(\.title), ["标题不含关键字"])
+        #expect(sqliteResults.map(\.title) == ["标题不含关键字"])
     }
 
+    @Test
     func testLoaderSkipsSQLiteRebuildWhenMarkdownSignatureIsUnchanged() throws {
         let temporaryRoot = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -97,10 +100,11 @@ final class TodoSQLiteQueryConsistencyTests: XCTestCase {
 
         let records = try TodoRecordLoader(store: store).load()
 
-        XCTAssertEqual(records.map(\.title), ["索引缓存任务"])
-        XCTAssertEqual(try updatedAt(databaseURL: databaseURL), "sentinel-updated-at")
+        #expect(records.map(\.title) == ["索引缓存任务"])
+        #expect(try updatedAt(databaseURL: databaseURL) == "sentinel-updated-at")
     }
 
+    @Test
     func testLoaderRebuildsSQLiteIndexAfterExternalMarkdownEdit() throws {
         let temporaryRoot = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -126,7 +130,7 @@ final class TodoSQLiteQueryConsistencyTests: XCTestCase {
             query: TodoQuery(searchText: "external-edit-token")
         ).load()
 
-        XCTAssertEqual(results.map(\.title), ["外部修改任务"])
+        #expect(results.map(\.title) == ["外部修改任务"])
     }
 
     private func setUpdatedAt(_ value: String, databaseURL: URL) throws {

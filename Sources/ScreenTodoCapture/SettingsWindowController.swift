@@ -1,4 +1,7 @@
 import AppKit
+import OSLog
+
+private let settingsLogger = Logger(subsystem: "ScreenTodoCapture", category: "Settings")
 
 /// 通用应用设置窗口。
 ///
@@ -22,6 +25,10 @@ final class SettingsWindowController: NSWindowController {
         target: nil,
         action: nil
     )
+
+    private let reminderStatusLabel = NSTextField(labelWithString: "")
+    private let testRemindersButton = NSButton(title: "测试提醒事项连接", target: nil, action: nil)
+    private let syncAllRemindersButton = NSButton(title: "同步已有待办 / 重试", target: nil, action: nil)
 
     init(configStore: AppConfigStore) {
         self.configStore = configStore
@@ -164,9 +171,21 @@ final class SettingsWindowController: NSWindowController {
         fontSizeRow.spacing = 10
         fontSizeRow.alignment = .centerY
 
-        let reminderHelp = helperText("开启后，新建待办会单向创建 Apple Reminders（苹果提醒事项）；本地完成/恢复会同步状态。删除或归档本地待办不会删除系统提醒事项。", role: .caption)
+        let reminderHelp = helperText("开启并授权后，新建、编辑、重新规划和完成/恢复都会单向同步到苹果提醒事项。可补同步已有待办；在苹果提醒事项中的修改不会回写。删除或归档本地待办不会删除系统提醒事项。", role: .caption)
         reminderSyncButton.target = self
         reminderSyncButton.action = #selector(reminderSyncChanged)
+        syncAllRemindersButton.target = self
+        syncAllRemindersButton.action = #selector(syncAllReminders)
+        reminderStatusLabel.maximumNumberOfLines = 0
+        reminderStatusLabel.textColor = .secondaryLabelColor
+        AppFontPreferences.apply(.caption, to: reminderStatusLabel)
+        let privacyButton = NSButton(title: "打开系统权限设置", target: self, action: #selector(openReminderPrivacy))
+        testRemindersButton.target = self
+        testRemindersButton.action = #selector(testReminderConnection)
+        testRemindersButton.toolTip = "创建临时提醒，验证写入和完成状态更新后自动清理。"
+        let reminderActions = NSStackView(views: [testRemindersButton, syncAllRemindersButton, privacyButton])
+        reminderActions.orientation = .horizontal
+        reminderActions.spacing = 8
 
         let llmSection = settingsSection(
             title: "LLM 连接",
@@ -183,7 +202,7 @@ final class SettingsWindowController: NSWindowController {
         let displaySection = settingsSection(title: "显示", views: [fontSizeRow])
         let integrationSection = settingsSection(
             title: "系统集成",
-            views: [reminderSyncButton, reminderHelp]
+            views: [reminderSyncButton, reminderHelp, reminderActions, reminderStatusLabel]
         )
 
         let stack = NSStackView(views: [title, description, llmSection, displaySection, integrationSection])
@@ -319,8 +338,93 @@ final class SettingsWindowController: NSWindowController {
         applyFonts()
     }
 
+    /// 在开关处申请权限，用户立即知道是否可用；拒绝时关闭偏好并提供系统设置入口。
     @objc private func reminderSyncChanged() {
-        ReminderSyncPreferences.isEnabled = reminderSyncButton.state == .on
+        guard reminderSyncButton.state == .on else {
+            ReminderSyncPreferences.isEnabled = false
+            reminderStatusLabel.stringValue = "自动同步已关闭。"
+            return
+        }
+        reminderSyncButton.isEnabled = false
+        reminderStatusLabel.stringValue = "正在申请提醒事项访问权限…"
+        Task { [weak self] in
+            guard let self else { return }
+            defer { reminderSyncButton.isEnabled = true }
+            do {
+                let granted = try await ReminderSyncService.shared.requestAccess()
+                ReminderSyncPreferences.isEnabled = granted
+                reminderSyncButton.state = granted ? .on : .off
+                reminderStatusLabel.stringValue = granted ? "已授权。可以同步已有待办。"
+                    : "未获得权限，请在系统设置中允许访问提醒事项，然后重新开启同步。"
+            } catch {
+                ReminderSyncPreferences.isEnabled = false
+                reminderSyncButton.state = .off
+                reminderStatusLabel.stringValue = "授权失败：\(error.localizedDescription)"
+            }
+        }
+    }
+
+    @objc private func testReminderConnection() {
+        testRemindersButton.isEnabled = false
+        reminderStatusLabel.stringValue = "正在验证提醒事项创建和更新…"
+        Task { [weak self] in
+            guard let self else { return }
+            defer { testRemindersButton.isEnabled = true }
+            do {
+                try await ReminderSyncService.shared.verifyConnection()
+                reminderStatusLabel.stringValue = "连接正常：创建、读取、完成状态更新均成功，临时提醒已清理。"
+            } catch {
+                reminderStatusLabel.stringValue = "连接测试失败：\(error.localizedDescription)"
+            }
+        }
+    }
+
+    @objc private func openReminderPrivacy() {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Reminders") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    /// 批量入口从存储读取全部活动记录，不受列表搜索/筛选影响；逐条调用共享串行同步队列。
+    @objc private func syncAllReminders() {
+        guard ReminderSyncPreferences.isEnabled else {
+            reminderStatusLabel.stringValue = "请先开启同步并授权。"
+            return
+        }
+        syncAllRemindersButton.isEnabled = false
+        Task { [weak self] in
+            guard let self else { return }
+            defer { syncAllRemindersButton.isEnabled = true }
+            do {
+                let store = TodoStore()
+                let records = try TodoRecordLoader(store: store).load()
+                settingsLogger.info("Starting reminder batch sync. records=\(records.count, privacy: .public)")
+                var succeeded = 0
+                var failed = 0
+                var lastError = ""
+                for (index, record) in records.enumerated() {
+                    guard ReminderSyncPreferences.isEnabled else { break }
+                    reminderStatusLabel.stringValue = "正在同步 \(index + 1) / \(records.count)…"
+                    do {
+                        if let result = try await ReminderSyncService.shared.syncTodo(fileURL: record.fileURL, store: store) {
+                            if result.status == .synced { succeeded += 1 }
+                            else {
+                                failed += 1
+                                lastError = result.message ?? ReminderSyncStatus.display(result.status.rawValue)
+                                if result.status == .permissionDenied { break }
+                            }
+                        }
+                    } catch {
+                        failed += 1
+                        lastError = error.localizedDescription
+                    }
+                }
+                settingsLogger.info("Reminder batch finished. succeeded=\(succeeded, privacy: .public) failed=\(failed, privacy: .public)")
+                reminderStatusLabel.stringValue = "同步结果：成功 \(succeeded)，失败 \(failed)，未处理 \(records.count - succeeded - failed)。" + (failed > 0 ? " \(lastError)" : "")
+            } catch {
+                reminderStatusLabel.stringValue = "读取待办失败：\(error.localizedDescription)"
+            }
+        }
     }
 
     private func label(_ text: String) -> NSTextField {

@@ -1,8 +1,9 @@
 import CoreGraphics
 import ScreenTodoCaptureCore
-import XCTest
+import Testing
 
-final class OCRTextPostProcessorTests: XCTestCase {
+final class OCRTextPostProcessorTests {
+    @Test
     func testNormalizedTextOrdersObservationsByVisualReadingOrder() {
         let observations = [
             OCRObservation(text: "Canvas", boundingBox: CGRect(x: 0.50, y: 0.80, width: 0.20, height: 0.04), confidence: 0.95),
@@ -12,9 +13,10 @@ final class OCRTextPostProcessorTests: XCTestCase {
 
         let text = OCRTextPostProcessor().normalizedText(from: observations)
 
-        XCTAssertEqual(text, "提交到 Canvas\n周五前")
+        #expect(text == "提交到 Canvas\n周五前")
     }
 
+    @Test
     func testNormalizedTextDropsLowConfidenceAndEmptyObservations() {
         let observations = [
             OCRObservation(text: "  论文初稿  ", boundingBox: CGRect(x: 0.10, y: 0.70, width: 0.40, height: 0.04), confidence: 0.91),
@@ -24,6 +26,6 @@ final class OCRTextPostProcessorTests: XCTestCase {
 
         let text = OCRTextPostProcessor().normalizedText(from: observations)
 
-        XCTAssertEqual(text, "论文初稿")
+        #expect(text == "论文初稿")
     }
 }

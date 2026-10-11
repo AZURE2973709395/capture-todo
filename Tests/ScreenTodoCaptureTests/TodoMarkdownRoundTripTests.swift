@@ -1,9 +1,11 @@
 import Foundation
+import AppKit
 import ScreenTodoCaptureCore
 @testable import ScreenTodoCapture
-import XCTest
+import Testing
 
-final class TodoMarkdownRoundTripTests: XCTestCase {
+final class TodoMarkdownRoundTripTests {
+    @Test
     func testParseConfidenceAcceptsLoosePercentAndDecimalFormats() throws {
         let cases: [(String, Double)] = [
             ("85 %", 0.85),
@@ -13,11 +15,12 @@ final class TodoMarkdownRoundTripTests: XCTestCase {
         ]
 
         for (input, expected) in cases {
-            let confidence = try XCTUnwrap(TodoMarkdownParser.parseConfidence(input), input)
-            XCTAssertEqual(confidence, expected, accuracy: 0.0001, input)
+            let confidence = try #require(TodoMarkdownParser.parseConfidence(input), "\(input)")
+            #expect(abs((confidence) - (expected)) <= 0.0001, "\(input)")
         }
     }
 
+    @Test
     func testMarkdownRoundTripKeepsLLMPlanningFieldsAndHistory() throws {
         let createdAt = Date(timeIntervalSince1970: 1_800_000_000)
         let draft = TodoDraft(
@@ -64,18 +67,19 @@ final class TodoMarkdownRoundTripTests: XCTestCase {
         let store = TodoStore(rootDirectoryOverride: temporaryRoot)
         let fileURL = store.todosDirectory.appendingPathComponent("sample.md")
 
-        let record = try XCTUnwrap(TodoMarkdownParser.parse(fileURL: fileURL, content: markdown, store: store))
-        XCTAssertEqual(record.title, "整理合同反馈")
-        XCTAssertEqual(record.tags, ["工作", "合同"])
-        XCTAssertEqual(record.priority, "high")
-        XCTAssertEqual(try XCTUnwrap(record.confidence), 0.82, accuracy: 0.001)
-        XCTAssertEqual(record.planHistories.count, 1)
-        XCTAssertEqual(record.planHistories.first?.title, "旧标题")
-        XCTAssertEqual(record.planHistories.first?.plannedSteps, ["旧步骤"])
-        XCTAssertEqual(record.reminderIdentifier, "reminder-1")
-        XCTAssertEqual(record.reminderSyncStatus, "synced")
+        let record = try #require(TodoMarkdownParser.parse(fileURL: fileURL, content: markdown, store: store))
+        #expect(record.title == "整理合同反馈")
+        #expect(record.tags == ["工作", "合同"])
+        #expect(record.priority == "high")
+        #expect(abs((try #require(record.confidence)) - (0.82)) <= 0.001)
+        #expect(record.planHistories.count == 1)
+        #expect(record.planHistories.first?.title == "旧标题")
+        #expect(record.planHistories.first?.plannedSteps == ["旧步骤"])
+        #expect(record.reminderIdentifier == "reminder-1")
+        #expect(record.reminderSyncStatus == "synced")
     }
 
+    @Test
     func testTodoStoreReplanPreservesOldPlanAsHistory() throws {
         let temporaryRoot = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -98,7 +102,7 @@ final class TodoMarkdownRoundTripTests: XCTestCase {
         )
 
         _ = try store.save(draft: originalDraft, image: nil)
-        let originalRecord = try XCTUnwrap(try TodoRecordLoader(store: store).load().first)
+        let originalRecord = try #require(try TodoRecordLoader(store: store).load().first)
         var replannedDraft = originalRecord.makeDraftForPlanning()
         replannedDraft.title = "新规划任务"
         replannedDraft.summary = "新摘要"
@@ -109,17 +113,18 @@ final class TodoMarkdownRoundTripTests: XCTestCase {
 
         try store.replacePlan(record: originalRecord, with: replannedDraft)
 
-        let updatedRecord = try XCTUnwrap(try TodoRecordLoader(store: store).load().first)
-        XCTAssertEqual(updatedRecord.title, "新规划任务")
-        XCTAssertEqual(updatedRecord.priority, "urgent")
-        XCTAssertEqual(updatedRecord.tags, ["自动化", "测试"])
-        XCTAssertEqual(try XCTUnwrap(updatedRecord.confidence), 0.91, accuracy: 0.001)
-        XCTAssertEqual(updatedRecord.planHistories.count, 1)
-        XCTAssertEqual(updatedRecord.planHistories.first?.title, "旧规划任务")
-        XCTAssertEqual(updatedRecord.planHistories.first?.priority, "low")
+        let updatedRecord = try #require(try TodoRecordLoader(store: store).load().first)
+        #expect(updatedRecord.title == "新规划任务")
+        #expect(updatedRecord.priority == "urgent")
+        #expect(updatedRecord.tags == ["自动化", "测试"])
+        #expect(abs((try #require(updatedRecord.confidence)) - (0.91)) <= 0.001)
+        #expect(updatedRecord.planHistories.count == 1)
+        #expect(updatedRecord.planHistories.first?.title == "旧规划任务")
+        #expect(updatedRecord.planHistories.first?.priority == "low")
     }
 
     @MainActor
+    @Test
     func testCapturePipelineFallsBackToLocalDraftWhenLLMFails() async throws {
         enum TestError: Error { case llmFailure }
 
@@ -157,13 +162,14 @@ final class TodoMarkdownRoundTripTests: XCTestCase {
         )
 
         let result = try await pipeline.run(image: image, sourceApplication: "测试应用")
-        XCTAssertEqual(savedDraft?.title, "本地标题")
-        XCTAssertEqual(result.recognizedText, "明天提交预算表")
-        XCTAssertFalse(result.didUseLLMPlanning)
-        XCTAssertNotNil(result.llmPlanningErrorDescription)
-        XCTAssertEqual(events.count, 2)
+        #expect(savedDraft?.title == "本地标题")
+        #expect(result.recognizedText == "明天提交预算表")
+        #expect(!(result.didUseLLMPlanning))
+        #expect(result.llmPlanningErrorDescription != nil)
+        #expect(events.count == 2)
     }
 
+    @Test
     func testTodoQueryFiltersSearchTagsPriorityAndToday() throws {
         let temporaryRoot = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -212,20 +218,20 @@ final class TodoMarkdownRoundTripTests: XCTestCase {
             query: TodoQuery(searchText: "预算", priority: "high"),
             referenceDate: referenceDate
         ).load()
-        XCTAssertEqual(searchResults.map(\.title), ["准备预算表"])
+        #expect(searchResults.map(\.title) == ["准备预算表"])
 
         let tagResults = try TodoRecordLoader(
             store: store,
             query: TodoQuery(tag: "合同", priority: "urgent"),
             referenceDate: referenceDate
         ).load()
-        XCTAssertEqual(tagResults.map(\.title), ["过期合同"])
+        #expect(tagResults.map(\.title) == ["过期合同"])
 
         let todayResults = try TodoRecordLoader(
             store: store,
             query: TodoQuery(timeRange: .today, view: .today),
             referenceDate: referenceDate
         ).load()
-        XCTAssertEqual(Set(todayResults.map(\.title)), Set(["准备预算表", "过期合同"]))
+        #expect(Set(todayResults.map(\.title)) == Set(["准备预算表", "过期合同"]))
     }
 }

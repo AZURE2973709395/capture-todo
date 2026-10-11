@@ -1,9 +1,10 @@
 import Foundation
 import ScreenTodoCaptureCore
 @testable import ScreenTodoCapture
-import XCTest
+import Testing
 
-final class TodoStorePersistenceTests: XCTestCase {
+final class TodoStorePersistenceTests {
+    @Test
     func testSavingMultipleDraftsWithSameTimestampDoesNotOverwriteMarkdown() throws {
         let temporaryRoot = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -28,11 +29,11 @@ final class TodoStorePersistenceTests: XCTestCase {
         let firstStored = try store.save(draft: first, image: nil)
         let secondStored = try store.save(draft: second, image: nil)
 
-        XCTAssertNotEqual(firstStored.todoURL, secondStored.todoURL)
-        XCTAssertTrue(FileManager.default.fileExists(atPath: firstStored.todoURL.path))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: secondStored.todoURL.path))
+        #expect(firstStored.todoURL != secondStored.todoURL)
+        #expect(FileManager.default.fileExists(atPath: firstStored.todoURL.path))
+        #expect(FileManager.default.fileExists(atPath: secondStored.todoURL.path))
 
         let records = try TodoRecordLoader(store: store, sortMode: .createdDesc).load()
-        XCTAssertEqual(Set(records.map(\.title)), Set(["第一条作业通知", "第二条作业通知"]))
+        #expect(Set(records.map(\.title)) == Set(["第一条作业通知", "第二条作业通知"]))
     }
 }

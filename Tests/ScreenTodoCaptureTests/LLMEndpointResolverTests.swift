@@ -1,8 +1,9 @@
 import Foundation
 @testable import ScreenTodoCapture
-import XCTest
+import Testing
 
-final class LLMEndpointResolverTests: XCTestCase {
+final class LLMEndpointResolverTests {
+    @Test
     func testChatCompletionsURLResolvesConfiguredBaseURLVariants() throws {
         let cases = [
             ("https://example.com/v1", "https://example.com/v1/chat/completions"),
@@ -14,8 +15,8 @@ final class LLMEndpointResolverTests: XCTestCase {
         ]
 
         for (input, expected) in cases {
-            let resolved = LLMEndpointResolver.chatCompletionsURL(from: try XCTUnwrap(URL(string: input)))
-            XCTAssertEqual(resolved.absoluteString, expected, "Failed to resolve \(input)")
+            let resolved = LLMEndpointResolver.chatCompletionsURL(from: try #require(URL(string: input)))
+            #expect(resolved.absoluteString == expected, "Failed to resolve \(input)")
         }
     }
 }

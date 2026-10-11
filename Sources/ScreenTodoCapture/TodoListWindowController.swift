@@ -49,6 +49,8 @@ final class TodoListWindowController: NSWindowController, NSTableViewDataSource,
     private let sourceValueLabel = NSTextField(labelWithString: "-")
 
     private let editButton = NSButton(title: "编辑", target: nil, action: nil)
+    private let reminderSyncButton = NSButton(title: "同步提醒", target: nil, action: nil)
+    private var pendingReminderSyncCount = 0
     private let replanButton = NSButton(title: "重新规划", target: nil, action: nil)
     private let completeButton = NSButton(title: "标为完成", target: nil, action: nil)
     private let archiveButton = NSButton(title: "归档", target: nil, action: nil)
@@ -363,7 +365,7 @@ final class TodoListWindowController: NSWindowController, NSTableViewDataSource,
         primaryStack.spacing = 8
         primaryStack.alignment = .centerY
 
-        let secondaryStack = NSStackView(views: [archiveButton, openFileButton, openScreenshotButton, settingsButton, deleteButton])
+        let secondaryStack = NSStackView(views: [reminderSyncButton, archiveButton, openFileButton, openScreenshotButton, settingsButton, deleteButton])
         secondaryStack.orientation = .horizontal
         secondaryStack.spacing = 6
         secondaryStack.alignment = .centerY
@@ -392,6 +394,7 @@ final class TodoListWindowController: NSWindowController, NSTableViewDataSource,
             (completeButton, "checkmark.circle", "标记完成", nil, NotesTheme.accent),
             (editButton, "square.and.pencil", "编辑", nil, NotesTheme.icon),
             (replanButton, "wand.and.stars", "重新规划", nil, NotesTheme.icon),
+            (reminderSyncButton, "arrow.triangle.2.circlepath", "同步到苹果提醒事项 / 重试", "", NotesTheme.icon),
             (archiveButton, "archivebox", "归档", "", NotesTheme.icon),
             (openFileButton, "doc.text", "打开文件", "", NotesTheme.icon),
             (openScreenshotButton, "photo", "打开截图", "", NotesTheme.icon),
@@ -413,6 +416,8 @@ final class TodoListWindowController: NSWindowController, NSTableViewDataSource,
         openFileButton.action = #selector(openSelectedFile)
         openScreenshotButton.target = self
         openScreenshotButton.action = #selector(openSelectedScreenshot)
+        reminderSyncButton.target = self
+        reminderSyncButton.action = #selector(syncSelectedReminder)
         settingsButton.target = self
         settingsButton.action = #selector(openSettings)
 
@@ -739,6 +744,7 @@ final class TodoListWindowController: NSWindowController, NSTableViewDataSource,
     }
 
     private func setActionsEnabled(_ enabled: Bool) {
+        reminderSyncButton.isEnabled = enabled && pendingReminderSyncCount == 0
         editButton.isEnabled = enabled
         replanButton.isEnabled = enabled && !isReplanning
         completeButton.isEnabled = enabled
@@ -822,38 +828,43 @@ final class TodoListWindowController: NSWindowController, NSTableViewDataSource,
         do {
             try store.update(record: record)
             refresh()
-            syncReminderCompletionIfNeeded(fileURL: record.fileURL)
+            syncReminderIfNeeded(fileURL: record.fileURL)
         } catch {
             showError(error)
         }
     }
 
-    private func syncReminderCompletionIfNeeded(fileURL: URL) {
+    @objc private func syncSelectedReminder() {
         guard ReminderSyncPreferences.isEnabled else {
+            setActionMessage("请先在设置中开启苹果提醒事项同步并授权。", isError: true)
             return
         }
+        guard let record = selectedRecord() else { return }
+        syncReminderIfNeeded(fileURL: record.fileURL)
+    }
 
+    /// 新建、编辑、完成和重规划共用同一同步服务；手动入口用于补同步及失败重试。
+    private func syncReminderIfNeeded(fileURL: URL) {
+        guard ReminderSyncPreferences.isEnabled else { return }
+        pendingReminderSyncCount += 1
+        reminderSyncButton.isEnabled = false
+        setActionMessage("正在同步苹果提醒事项…", isError: false)
         Task { [weak self, fileURL] in
-            guard let self,
-                  let updatedRecord = try? store.loadRecord(fileURL: fileURL),
-                  updatedRecord.reminderIdentifier?.isEmpty == false else {
-                return
+            guard let self else { return }
+            defer {
+                pendingReminderSyncCount -= 1
+                reminderSyncButton.isEnabled = selectedRecord() != nil && pendingReminderSyncCount == 0
             }
-
-            let metadata = await ReminderSyncService().updateCompletion(
-                for: updatedRecord,
-                isCompleted: updatedRecord.status == "已完成"
-            )
             do {
-                try store.updateReminderMetadata(fileURL: fileURL, metadata: metadata)
+                guard let metadata = try await ReminderSyncService.shared.syncTodo(fileURL: fileURL, store: store) else { return }
                 setActionMessage(
-                    metadata.status == .synced
-                        ? "Apple Reminders（苹果提醒事项）状态已同步。"
-                        : "Apple Reminders（苹果提醒事项）同步失败：\(ReminderSyncStatus.display(metadata.status.rawValue))",
+                    metadata.status == .synced ? "苹果提醒事项已同步。"
+                        : "同步失败：\(metadata.message ?? ReminderSyncStatus.display(metadata.status.rawValue))",
                     isError: metadata.status != .synced
                 )
-                refresh(selecting: fileURL)
+                refresh(selecting: selectedRecord()?.fileURL)
             } catch {
+                todoListLogger.error("Reminder metadata persistence failed: \(error.localizedDescription, privacy: .public)")
                 setActionMessage("提醒事项同步状态写回失败：\(error.localizedDescription)", isError: true)
             }
         }
@@ -887,6 +898,7 @@ final class TodoListWindowController: NSWindowController, NSTableViewDataSource,
                 replanButton.title = "重新规划"
                 setActionMessage("重新规划已完成，旧规划已写入历史。", isError: false)
                 refresh(selecting: fileURL)
+                syncReminderIfNeeded(fileURL: fileURL)
             } catch {
                 isReplanning = false
                 replanButton.title = "重新规划"
@@ -912,7 +924,7 @@ final class TodoListWindowController: NSWindowController, NSTableViewDataSource,
         do {
             try store.update(record: record)
             refresh()
-            syncReminderCompletionIfNeeded(fileURL: record.fileURL)
+            syncReminderIfNeeded(fileURL: record.fileURL)
         } catch {
             showError(error)
         }
@@ -1240,6 +1252,9 @@ private enum TodoVisuals {
         }
         if !record.tags.isEmpty {
             parts.append(record.tags.prefix(3).joined(separator: "、"))
+        }
+        if let syncStatus = record.reminderSyncStatus {
+            parts.append("提醒事项 \(ReminderSyncStatus.display(syncStatus))")
         }
         return parts.joined(separator: "  ·  ")
     }

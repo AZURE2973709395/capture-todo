@@ -22,6 +22,8 @@
     <string>13.0</string>
     <key>NSHighResolutionCapable</key>
     <true/>
+    <key>NSRemindersUsageDescription</key>
+    <string>用于把本地待办同步到苹果提醒事项。</string>
     <key>NSRemindersFullAccessUsageDescription</key>
     <string>用于把 Screen Todo Capture 创建的本地待办单向同步到 Apple Reminders（苹果提醒事项）。</string>
 </dict>

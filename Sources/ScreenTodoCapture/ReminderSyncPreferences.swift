@@ -43,4 +43,5 @@ struct ReminderSyncMetadata {
     var identifier: String?
     var syncedAt: Date?
     var status: ReminderSyncStatus
+    var message: String? = nil
 }

@@ -1,20 +1,22 @@
 @testable import ScreenTodoCapture
-import XCTest
+import Testing
 
-final class ScreenRegionCaptureServiceTests: XCTestCase {
+final class ScreenRegionCaptureServiceTests {
+    @Test
     func testFailureClassifierDetectsScreenRecordingPermissionErrors() {
-        XCTAssertTrue(ScreenCaptureFailureClassifier.isPermissionDenied(
+        #expect(ScreenCaptureFailureClassifier.isPermissionDenied(
             "screencapture: not authorized to capture the screen"
         ))
-        XCTAssertTrue(ScreenCaptureFailureClassifier.isPermissionDenied(
+        #expect(ScreenCaptureFailureClassifier.isPermissionDenied(
             "Screen Recording permission is required by privacy policy"
         ))
     }
 
+    @Test
     func testFailureClassifierDoesNotTreatCancellationAsPermissionError() {
-        XCTAssertFalse(ScreenCaptureFailureClassifier.isPermissionDenied(""))
-        XCTAssertFalse(ScreenCaptureFailureClassifier.isPermissionDenied(
+        #expect(!(ScreenCaptureFailureClassifier.isPermissionDenied("")))
+        #expect(!(ScreenCaptureFailureClassifier.isPermissionDenied(
             "user cancelled interactive capture"
-        ))
+        )))
     }
 }
